@@ -1,0 +1,104 @@
+#!/usr/bin/env python
+
+from os import TMP_MAX
+import rospy
+import copy
+import math
+import time
+from geometry_msgs.msg import Twist
+from std_srvs.srv import Trigger, TriggerResponse
+from sensor_msgs.msg import LaserScan
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.cluster.hierarchy import linkage
+
+
+def rewrite_id(id, link, group, step, n):
+    i = int(link[step, 0])
+    j = int(link[step, 1])
+    if i < n:
+        group[i] = id
+    else:
+        rewrite_id(id, link, group, i-n, n)
+
+    if j < n:
+        group[j] = id
+    else:
+        rewrite_id(id, link, group, j-n, n)
+
+
+class lidar():
+    def __init__(self):
+        self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
+        self.angle_min = -1.57
+        self.angle_max = 1.57
+        self.angle_inc = 0.00314
+        self.scan_len = int(
+            round((self.angle_max-self.angle_min) / self.angle_inc))
+        self.angles = np.arange(self.angle_min, self.angle_max, self.angle_inc)
+        self.sin = np.sin(self.angles)
+        self.cos = np.cos(self.angles)
+        self.dist = np.empty(self.scan_len)
+        self.scaned = 0
+
+        rospy.Subscriber('scan', LaserScan, self.urg_callback, queue_size=1)
+
+    def urg_callback(self, m):
+        self.dist = np.array(m.ranges)
+        self.scaned = 1
+
+    def run(self):
+        rate = rospy.Rate(10)
+        data = Twist()
+
+        Figure, ax = plt.subplots()
+        
+
+        while not rospy.is_shutdown():
+            if self.scaned == 1:
+                xx = self.cos * self.dist
+                yy = self.sin * self.dist
+                xy = np.stack([xx, yy], 1)
+
+                # clustering
+                linked = linkage(xy, 'single')
+                n = xy.shape[0]
+                threshold = 40
+                group = np.empty(n, dtype='int32')
+                step = 0
+                while True:
+                    if step >= n-2:
+                        break
+                    dist = linked[step, 2]
+                    if dist > threshold:
+                        break
+                    rewrite_id(step+n, linked, group, step, n)
+                    step = step+1
+
+                # plot
+                cmap = plt.get_cmap("tab10")
+                cids = list(set(group))
+
+                ax.cla()
+                for i in range(xy.shape[0]):
+                #for i in range(10):
+                    ell = cids.index(group[i]) % 10
+                    ax.scatter(-xy[i, 1], xy[i, 0], color=cmap(ell))
+                    
+                ax.set_xlim([-1.5,1.5])
+                ax.set_ylim([0,3])
+
+                ax.grid(True)
+                plt.pause(0.01)
+                self.scaned = 0
+
+            data.linear.x = 0.0
+            data.angular.z = 0.0
+            self.cmd_vel.publish(data)
+
+            rate.sleep()
+
+
+if __name__ == '__main__':
+    rospy.init_node('scan_cluser')
+    lidar().run()
