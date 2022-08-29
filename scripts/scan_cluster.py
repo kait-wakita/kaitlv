@@ -63,7 +63,7 @@ class lidar():
                 # clustering
                 linked = linkage(xy, 'single')
                 n = xy.shape[0]
-                threshold = 40
+                threshold = 0.5
                 group = np.empty(n, dtype='int32')
                 step = 0
                 while True:
