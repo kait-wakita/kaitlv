@@ -9,30 +9,35 @@ from sensor_msgs.msg import LaserScan
 class lidar():
     def __init__(self):
         self.cmd_vel = rospy.Publisher('/cmd_vel', Twist, queue_size=1)
-        self.angle_min = -1.57
-        self.angle_max = 1.57
-        self.angle_inc = 0.00314
-
-        self.scan_len = int(round((self.angle_max-self.angle_min) / self.angle_inc))
-        i_center = int(self.scan_len/2)
-        i_diff_center = int(round(10*math.pi/180/self.angle_inc))
-        i_diff_side = int(round(20*math.pi/180/self.angle_inc))
-
-        self.range_values = [5.0] * self.scan_len
-        self.i_r1 = i_center - i_diff_center
-        self.i_r2 = i_center - i_diff_side
-        self.i_l1 = i_center + i_diff_center
-        self.i_l2 = i_center + i_diff_side
+        self.scan_init_p = 0
 
         self.dist_r = 0
         self.dist_c = 0
         self.dist_l = 0
         
-        self.danger_front = 0.8
-        self.danger_side = 1.0
+        self.danger_front = 0.7
+        self.danger_side = 0.5
         rospy.Subscriber('scan', LaserScan, self.urg_callback)
 
     def urg_callback(self,m):
+        if self.scan_init_p == 0:
+            self.angle_min = m.angle_min
+            self.angle_max = m.angle_max
+            self.angle_inc = m.angle_increment
+
+            self.scan_len = int(round((self.angle_max-self.angle_min) / self.angle_inc))
+            i_center = int(self.scan_len/2)
+            i_diff_center = int(round(10*math.pi/180/self.angle_inc))
+            i_diff_side = int(round(30*math.pi/180/self.angle_inc))
+
+            self.range_values = [5.0] * self.scan_len
+            self.i_r1 = i_center - i_diff_center
+            self.i_r2 = i_center - i_diff_side
+            self.i_l1 = i_center + i_diff_center
+            self.i_l2 = i_center + i_diff_side
+
+            self.scan_init_p =1
+
         r_tmp = []
         for val in m.ranges:
             r_tmp.append(self.range_fix(val))
@@ -41,6 +46,7 @@ class lidar():
         self.dist_l = min(r_tmp[self.i_l1:self.i_l2])
         self.range_values = r_tmp
 
+
     def range_fix(self,r):
         if r<0.1:
             return(5.0)
@@ -48,7 +54,6 @@ class lidar():
             return(5.0)
         else:
             return(r)
-
 
     def run(self):
         rate =rospy.Rate(10)
@@ -60,20 +65,18 @@ class lidar():
 
             if(self.dist_c < self.danger_front):
                 if(self.dist_r > self.dist_l):
-                    data.angular.z = -math.pi/2
+                    data.angular.z = -math.pi
                 else:
-                    data.angular.z = math.pi/2
+                    data.angular.z = math.pi
             elif(self.dist_l < self.danger_side):
                 data.angular.z = -math.pi/4
             elif(self.dist_r < self.danger_side):
                 data.angular.z = math.pi/4
             else:
-                data.linear.x = 1.5    
+                data.linear.x = 1.5
          
-
-            print("left:%4.2f center:%4.2f right:%4.2f" % (self.dist_l,self.dist_c,self.dist_r))
-            #print(data.linear.x, data.angular.z)
-
+            print("v=%4.2f w=%4.2f (left:%4.2f center:%4.2f right:%4.2f)" % (data.linear.x, data.angular.z, self.dist_l,self.dist_c,self.dist_r))
+        
             self.cmd_vel.publish(data)
             rate.sleep()
             
